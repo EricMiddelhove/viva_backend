@@ -6,7 +6,7 @@ use crate::game::Game;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Gameday {
-  pub(crate) initial_player_credits: u32,
+  pub(crate) initial_player_credits: u64,
   pub(crate) name: String,
   games: Vec<Game>,
   _id: ObjectId,
@@ -14,7 +14,7 @@ pub struct Gameday {
 
 
 impl Gameday {
-  pub async fn new(initial_player_credits: u32, name: String, collection: &Collection<Gameday>) -> Result<ObjectId, Error> {
+  pub async fn new(initial_player_credits: u64, name: String, collection: &Collection<Gameday>) -> Result<ObjectId, Error> {
 
     let id = ObjectId::new();
 

@@ -1,17 +1,33 @@
+use std::fmt;
 use std::io::ErrorKind;
 use mongodb::bson::{doc, Document};
+use mongodb::bson::oid::ObjectId;
 use mongodb::Collection;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use rand::Rng;
+use crate::api;
 use crate::data_source::DataSource;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct  User {
-  name: String,
-  nickname: String,
-  id: Uuid,
-  credits: u64,
-  pin: [u8; 6],
+pub struct Player {
+  pub(crate) name: Option<String>,
+  pub(crate) nickname: Option<String>,
+  pub(crate) _id: ObjectId,
+  pub(crate) credits: u64,
+  pub(crate) pin: u32
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Dealer {
+  pub(crate) name: String,
+  pub(crate) _id: ObjectId,
+  pub(crate) pin: u32,
+  pub(crate) password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum  User {
+  Player(Player),
+  Dealer(Dealer)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,62 +39,20 @@ enum Roles {
 
 type Error = std::io::Error;
 
-// impl User {
-//   fn read_info(&self, id: &str) -> Result<(), Error> {
-//     let err = Error::new(ErrorKind::InvalidData, format!("User with id: {} not found", id));
-//     Err(err)
-//   }
-//
-//   async fn modify_credits(&mut self, player_id: &str, credit_difference: i64, collection: Collection<User>) -> Result<(), Error> {
-//     match self.role {
-//       Roles::Player => {
-//         return Err(Error::new(ErrorKind::PermissionDenied, "You are not allowed to modify your credit"))
-//       }
-//       _ => {}
-//     };
-//
-//     let filter = doc! { "_id": &player_id };
-//
-//     let modification = doc! { "credits": {"$add": credit_difference }};
-//     let u = collection.update_one(filter, modification).await;
-//
-//     match u {
-//       Ok(_) => Ok(()),
-//       Err(err) => Err(Error::new(ErrorKind::Other, err.to_string())),
-//     }
-//   }
-//
-//   async fn retrieve_one(&self, id: &str, data_source: DataSource) -> Result<User, std::io::Error> {
-//
-//     let client = data_source.get_new_db_client();
-//
-//     let db = client.database(data_source.database_identifier);
-//     let coll: Collection<User> = db.collection(data_source.collection_identifier);
-//
-//     let result = coll.find_one(doc! {"_id": &id}).await?;
-//
-//     match result {
-//       None => Err(std::io::Error::new(ErrorKind::NotFound, "User not found")),
-//       Some(some) => Ok(some),
-//     }?
-//   }
-//
-//   async fn new(data_source: DataSource, user: User) -> Result<User, std::io::Error> {
-//     let client = data_source.get_new_db_client();
-//
-//     let db = client.database(data_source.database_identifier);
-//     let coll: Collection<User> = db.collection(data_source.collection_identifier);
-//
-//     let document = doc! {
-//       "name": user.name,
-//       "nickname": user.nickname,
-//       "_id": user.id,
-//       "credits": user.credits,
-//       ""
-//     }
-//
-//     let result = coll.insert_one(document).await?;
-//
-//
-//   }
-// }
+impl User {
+  pub async fn new(data: User, data_source: DataSource) -> Result<ObjectId, Error> {
+
+    let insert_doc: api::User = data.into();
+
+    let client = data_source.get_new_db_client().await?;
+    let db = client.database(data_source.database_identifier);
+    let coll: Collection<api::User> = db.collection(data_source.collection_identifier.into());
+
+    let res = coll.insert_one(&insert_doc).await;
+
+    match res {
+      Ok(r) => { Ok(r.inserted_id.as_object_id().unwrap().into()) }
+      Err(e) => { Err(std::io::Error::new(ErrorKind::ConnectionRefused, e.to_string())) }
+    }
+  }
+}

@@ -1,10 +1,33 @@
 use std::io::{Error, ErrorKind};
+use actix_web::web::Data;
 use mongodb::bson::{doc, Document};
 use mongodb::{Client, Collection};
+use crate::{DATABASE_IDENT, MONGO_URL};
 
 pub struct DataSource {
-  pub mongo_uri: String,
+  pub database_identifier: &'static str,
+  pub collection_identifier: &'static str,
+  pub mongo_uri: &'static str,
 }
+
+pub const GAMEDAYS: DataSource = DataSource {
+  database_identifier: DATABASE_IDENT,
+  collection_identifier: "gamedays",
+  mongo_uri: MONGO_URL,
+};
+
+pub const PENDING_USERS: DataSource = DataSource {
+  database_identifier: DATABASE_IDENT,
+  collection_identifier: "pending_users",
+  mongo_uri: MONGO_URL,
+};
+
+pub const ACTIVE_USERS: DataSource = DataSource {
+  database_identifier: DATABASE_IDENT,
+  collection_identifier: "active_users",
+  mongo_uri: MONGO_URL,
+};
+
 
 impl DataSource {
 
