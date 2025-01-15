@@ -1,8 +1,8 @@
 use std::io::{Error, ErrorKind};
-use mongodb::bson::{doc, Document, oid::ObjectId};
+use mongodb::bson::{doc, oid::ObjectId};
 use mongodb::Collection;
 use serde::{Deserialize, Serialize};
-use crate::game::Game;
+use crate::data_source::game::Game;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Gameday {
@@ -31,9 +31,5 @@ impl Gameday {
       Ok(_) => {Ok(id)}
       Err(e) => {Err(Error::new(ErrorKind::ConnectionRefused, e.to_string()))}
     }
-  }
-
-  pub async fn patch_one(id: ObjectId, modify_document: Document){
-
   }
 }

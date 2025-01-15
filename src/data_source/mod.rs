@@ -1,31 +1,35 @@
+use std::env;
 use std::io::{Error, ErrorKind};
-use actix_web::web::Data;
-use mongodb::bson::{doc, Document};
-use mongodb::{Client, Collection};
-use crate::{DATABASE_IDENT, MONGO_URL};
+use mongodb::Client;
+use crate::{DATABASE_IDENT};
+
+pub mod user;
+pub mod gameday;
+pub(crate) mod game;
 
 pub struct DataSource {
   pub database_identifier: &'static str,
   pub collection_identifier: &'static str,
-  pub mongo_uri: &'static str,
 }
 
 pub const GAMEDAYS: DataSource = DataSource {
   database_identifier: DATABASE_IDENT,
   collection_identifier: "gamedays",
-  mongo_uri: MONGO_URL,
 };
 
 pub const PENDING_USERS: DataSource = DataSource {
   database_identifier: DATABASE_IDENT,
   collection_identifier: "pending_users",
-  mongo_uri: MONGO_URL,
 };
 
 pub const ACTIVE_USERS: DataSource = DataSource {
   database_identifier: DATABASE_IDENT,
   collection_identifier: "active_users",
-  mongo_uri: MONGO_URL,
+};
+
+pub const GAMES: DataSource = DataSource{
+  database_identifier: DATABASE_IDENT,
+  collection_identifier: "games",
 };
 
 
@@ -33,7 +37,17 @@ impl DataSource {
 
   pub async fn get_new_db_client(&self) -> Result<mongodb::Client, Error> {
 
-    let c = Client::with_uri_str(&self.mongo_uri).await;
+    let mongo_uri = env::var("CUSTOMCONNSTR_MONGO_URI");
+
+    let mongo_uri = match mongo_uri {
+      Ok(mongo_uri) => {mongo_uri},
+
+      Err(_) => {
+        return Err(Error::new(ErrorKind::ConnectionRefused, "Mongo Connection url not set up"));
+      }
+    };
+
+    let c = Client::with_uri_str(mongo_uri).await;
     
     match c {
       Ok(c) => Ok(c),
@@ -42,4 +56,112 @@ impl DataSource {
 
   }
 
+}
+
+
+use mongodb::bson::oid::ObjectId;
+use serde::{Deserialize, Serialize};
+use crate::data_source::user::{Dealer, Player};
+
+#[derive(Deserialize)]
+pub(crate) struct Gameday {
+  pub(crate) name: String,
+  pub(crate) initial_player_credits: u64,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterUser {
+  pub(crate) nickname: String,
+  pub(crate) name: String,
+  pub(crate) pin: u32,
+}
+
+
+#[derive(Deserialize, Serialize)]
+pub struct DBUser {
+  pub(crate) _id: ObjectId,
+  pub(crate) nickname: Option<String>,
+  pub(crate) name: Option<String>,
+  pub(crate) pin: u32,
+  pub(crate) credits: Option<u64>,
+  pub(crate) password: Option<String>,
+  pub(crate) role: Roles,
+  pub(crate) active_game: Option<ObjectId>,
+}
+#[derive(Deserialize, Serialize)]
+pub enum Roles {
+  Player,
+  Dealer,
+}
+impl From<user::User> for DBUser {
+  fn from(value: user::User) -> Self {
+
+    match value {
+      user::User::Player(player) => {
+        DBUser {
+          _id: player._id,
+          nickname: player.nickname,
+          name: player.name,
+          pin: player.pin,
+          credits: Some(player.credits),
+          password: None,
+          role: Roles::Player,
+          active_game: player.active_game,
+        }
+      }
+      user::User::Dealer(dealer) => {
+        DBUser {
+          _id: dealer._id,
+          nickname: None,
+          name: Some(dealer.name),
+          pin: dealer.pin,
+          credits: None,
+          password: Some(dealer.password),
+          role: Roles::Dealer,
+          active_game: None,
+        }
+      }
+    }
+
+  }
+}
+
+impl Into<user::User> for DBUser {
+  fn into(self) -> user::User {
+    match self.role {
+      Roles::Player => {
+        user::User::Player(self.into())
+      }
+      Roles::Dealer => {
+        user::User::Dealer(Dealer{
+          name: self.name.unwrap(),
+          _id: self._id,
+          pin: self.pin,
+          password: self.password.unwrap(),
+        })
+      }
+    }
+  }
+}
+
+impl Into<Player> for DBUser{
+  fn into(self) -> Player {
+    Player{
+      name: self.name,
+      nickname: self.nickname,
+      _id: self._id,
+      credits: self.credits.unwrap(),
+      pin: self.pin,
+      active_game: self.active_game,
+    }
+  }
+}
+
+#[derive(Deserialize, Serialize)]
+
+pub struct Game {
+  pub(crate) name: String,
+  pub(crate) icon_id: String,
+  pub(crate) join_fee: u64,
+  pub description: String
 }
