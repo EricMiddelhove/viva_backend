@@ -1,0 +1,17 @@
+services:
+  client-db:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: client-db
+    ports:
+      - "27017:27017"
+
+  devcontainer:
+    build: .
+    environment:
+      - CUSTOMCONNSTR_MONGO_URI=mongodb://client-db:27017
+      - LOG4RS_CONFIG=../optimisation-server/log4rs.yml
+
+    volumes:
+      - ./..:/IdeaProjects:cached

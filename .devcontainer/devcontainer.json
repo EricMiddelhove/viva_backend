@@ -1,0 +1,18 @@
+{
+  "name": "MHPChargingPlanOptimizerDevContainer",
+  "forwardPorts": [
+    8000
+  ],
+  "portsAttributes": {
+    "8000": {
+      "label": "Optimizer port"
+    }
+  },
+  "runArgs": [
+    "-e",
+    "BRANCH_NAME=${BRANCH_NAME}"
+  ],
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/IdeaProjects/${localWorkspaceFolderBasename}"
+}

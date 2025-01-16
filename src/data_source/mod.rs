@@ -36,14 +36,13 @@ pub const GAMES: DataSource = DataSource{
 impl DataSource {
 
   pub async fn get_new_db_client(&self) -> Result<mongodb::Client, Error> {
-
     let mongo_uri = env::var("CUSTOMCONNSTR_MONGO_URI");
 
     let mongo_uri = match mongo_uri {
       Ok(mongo_uri) => {mongo_uri},
 
       Err(_) => {
-        return Err(Error::new(ErrorKind::ConnectionRefused, "Mongo Connection url not set up"));
+        return Err(Error::new(ErrorKind::ConnectionRefused, "Mongo Connection url not set up - Env var should be: CUSTOMCONNSTR_MONGO_URI"));
       }
     };
 
@@ -134,10 +133,10 @@ impl Into<user::User> for DBUser {
       }
       Roles::Dealer => {
         user::User::Dealer(Dealer{
-          name: self.name.unwrap(),
+          name: self.name.expect("Dealer has no name"),
           _id: self._id,
           pin: self.pin,
-          password: self.password.unwrap(),
+          password: self.password.expect("Dealer has no password"),
         })
       }
     }
@@ -150,7 +149,7 @@ impl Into<Player> for DBUser{
       name: self.name,
       nickname: self.nickname,
       _id: self._id,
-      credits: self.credits.unwrap(),
+      credits: self.credits.expect("Players credits are none"),
       pin: self.pin,
       active_game: self.active_game,
     }

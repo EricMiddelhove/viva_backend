@@ -1,0 +1,16 @@
+services:
+  user-db:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_DATABASE: client-db
+    ports:
+      - "27017:27017"
+
+  viva-server:
+    build: .
+    environment:
+      - CUSTOMCONNSTR_MONGO_URI=mongodb://user-db:27017
+
+    ports:
+      - "8080:8080"

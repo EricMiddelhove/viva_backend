@@ -7,6 +7,7 @@ use crate::data_source;
 use crate::data_source::{DBUser, DataSource};
 use crate::data_source::user::{Player};
 use futures::stream::{TryStreamExt};
+use futures::StreamExt;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Game {
@@ -63,4 +64,15 @@ impl Game {
 
     Ok(players)
   }
+
+  pub async fn get_all(game_data_source: DataSource) -> Result<Vec<Self>, Error> {
+    let client = game_data_source.get_new_db_client().await?;
+    let db = client.database(game_data_source.database_identifier);
+    let collection: Collection<Game> = db.collection(game_data_source.collection_identifier);
+
+    let res = collection.all().await?;
+
+    Ok(res)
+  }
+
 }
