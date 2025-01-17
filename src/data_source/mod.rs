@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt::{Display, Formatter};
 use std::io::{Error, ErrorKind};
 use mongodb::Client;
 use crate::{DATABASE_IDENT};
@@ -27,19 +28,18 @@ pub const ACTIVE_USERS: DataSource = DataSource {
   collection_identifier: "active_users",
 };
 
-pub const GAMES: DataSource = DataSource{
+pub const GAMES: DataSource = DataSource {
   database_identifier: DATABASE_IDENT,
   collection_identifier: "games",
 };
 
 
 impl DataSource {
-
   pub async fn get_new_db_client(&self) -> Result<mongodb::Client, Error> {
     let mongo_uri = env::var("CUSTOMCONNSTR_MONGO_URI");
 
     let mongo_uri = match mongo_uri {
-      Ok(mongo_uri) => {mongo_uri},
+      Ok(mongo_uri) => { mongo_uri }
 
       Err(_) => {
         return Err(Error::new(ErrorKind::ConnectionRefused, "Mongo Connection url not set up - Env var should be: CUSTOMCONNSTR_MONGO_URI"));
@@ -47,14 +47,12 @@ impl DataSource {
     };
 
     let c = Client::with_uri_str(mongo_uri).await;
-    
+
     match c {
       Ok(c) => Ok(c),
-      Err(e) => {Err(Error::new(ErrorKind::ConnectionRefused, format!("Database: {}", e)))},
+      Err(e) => { Err(Error::new(ErrorKind::ConnectionRefused, format!("Database: {}", e))) }
     }
-
   }
-
 }
 
 
@@ -75,6 +73,18 @@ pub struct RegisterUser {
   pub(crate) pin: u32,
 }
 
+#[derive(Deserialize)]
+pub struct RegisterDealer {
+  pub(crate) name: String,
+  pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct LoginDealer {
+  pub(crate) name: String,
+  pub password: String,
+}
+
 
 #[derive(Deserialize, Serialize)]
 pub struct DBUser {
@@ -87,14 +97,20 @@ pub struct DBUser {
   pub(crate) role: Roles,
   pub(crate) active_game: Option<ObjectId>,
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub enum Roles {
   Player,
   Dealer,
 }
+
+impl Display for Roles {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self)
+  }
+}
+
 impl From<user::User> for DBUser {
   fn from(value: user::User) -> Self {
-
     match value {
       user::User::Player(player) => {
         DBUser {
@@ -113,7 +129,7 @@ impl From<user::User> for DBUser {
           _id: dealer._id,
           nickname: None,
           name: Some(dealer.name),
-          pin: dealer.pin,
+          pin: 0,
           credits: None,
           password: Some(dealer.password),
           role: Roles::Dealer,
@@ -121,7 +137,6 @@ impl From<user::User> for DBUser {
         }
       }
     }
-
   }
 }
 
@@ -132,10 +147,9 @@ impl Into<user::User> for DBUser {
         user::User::Player(self.into())
       }
       Roles::Dealer => {
-        user::User::Dealer(Dealer{
+        user::User::Dealer(Dealer {
           name: self.name.expect("Dealer has no name"),
           _id: self._id,
-          pin: self.pin,
           password: self.password.expect("Dealer has no password"),
         })
       }
@@ -143,9 +157,9 @@ impl Into<user::User> for DBUser {
   }
 }
 
-impl Into<Player> for DBUser{
+impl Into<Player> for DBUser {
   fn into(self) -> Player {
-    Player{
+    Player {
       name: self.name,
       nickname: self.nickname,
       _id: self._id,
@@ -162,5 +176,5 @@ pub struct Game {
   pub(crate) name: String,
   pub(crate) icon_id: String,
   pub(crate) join_fee: u64,
-  pub description: String
+  pub description: String,
 }

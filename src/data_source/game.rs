@@ -7,7 +7,6 @@ use crate::data_source;
 use crate::data_source::{DBUser, DataSource};
 use crate::data_source::user::{Player};
 use futures::stream::{TryStreamExt};
-use futures::StreamExt;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Game {
@@ -15,28 +14,29 @@ pub struct Game {
   pub(crate) description: String,
   pub(crate) initial_costs: u32,
   pub(crate) name: String,
+  pub(crate) icon_id: String,
 }
 
 impl Game {
-  pub async fn new(initial_costs: u32, name: String, description: String, data_source: DataSource) -> Result<Self, Error> {
+  pub async fn new(initial_costs: u32, name: String, description: String, icon_id: String, data_source: DataSource) -> Result<Self, Error> {
     let client = data_source.get_new_db_client().await?;
     let db = client.database(data_source.database_identifier);
     let collection = db.collection::<Game>(data_source.collection_identifier);
 
-    let insert_doc = Game{
+    let insert_doc = Game {
       _id: ObjectId::new(),
       description,
       initial_costs,
       name,
+      icon_id,
     };
 
     let res = collection.insert_one(&insert_doc).await;
-    
+
     match res {
       Ok(_) => { Ok(insert_doc) }
-      Err(e) => {Err(e)}
+      Err(e) => { Err(e) }
     }
-
   }
 
   pub async fn get(id: &ObjectId, data_source: DataSource) -> Result<Option<Self>, Error> {
@@ -68,11 +68,13 @@ impl Game {
   pub async fn get_all(game_data_source: DataSource) -> Result<Vec<Self>, Error> {
     let client = game_data_source.get_new_db_client().await?;
     let db = client.database(game_data_source.database_identifier);
-    let collection: Collection<Game> = db.collection(game_data_source.collection_identifier);
+    let collection: Collection<Game> = db.collection::<Game>(game_data_source.collection_identifier);
 
-    let res = collection.all().await?;
+    let filter = doc! { };
+
+    let res = collection.find(filter).await?;
+    let res: Vec<Game> = res.try_collect().await?;
 
     Ok(res)
   }
-
 }
