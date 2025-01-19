@@ -8,7 +8,8 @@ use mongodb::error::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use crate::{data_source};
-use crate::data_source::{DBUser, DataSource};
+use crate::data_source::{DBUser, DataSource, GAMES};
+use crate::data_source::game::Game;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Player {
@@ -105,7 +106,27 @@ impl User {
       "_id": &user_id,
       "pin": &pin,
     };
-    let modify = doc! { "$set": {"active_game": &game_id }  };
+
+    let join_fee = if game_id.is_some() {
+      let game_to_join = Game::get(&game_id.expect("game id should be checked to be some"), GAMES).await?;
+      let game_to_join = match game_to_join {
+        None => {
+          return Err(Error::from(ErrorKind::InvalidData));
+        }
+        Some(g) => {
+          g
+        }
+      };
+
+      let join_fee: i32 = game_to_join.join_fee as i32;
+      let join_fee = -join_fee;
+
+      join_fee
+    } else {
+      0
+    };
+
+    let modify = doc! { "$set": {"active_game": &game_id },"$inc": {"credits": join_fee}  };
 
     let res = collection.update_one(filter, modify).await?;
 

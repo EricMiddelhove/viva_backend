@@ -2254,6 +2254,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "argon2",
+ "async-trait",
  "env_logger",
  "futures",
  "mongodb",
