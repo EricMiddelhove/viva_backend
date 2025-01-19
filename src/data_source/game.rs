@@ -78,7 +78,7 @@ impl Game {
     Ok(res)
   }
 
-  pub async fn patch_game(game_id: &ObjectId, game_data_source: DataSource, replacement: data_source::Game) -> Result<Option<Box<str>>, Error> {
+  pub async fn patch(game_id: &ObjectId, game_data_source: DataSource, replacement: data_source::Game) -> Result<Option<Box<str>>, Error> {
     let client = game_data_source.get_new_db_client().await?;
     let db = client.database(game_data_source.database_identifier);
     let collection: Collection<data_source::Game> = db.collection(game_data_source.collection_identifier);
@@ -87,6 +87,20 @@ impl Game {
     let res = collection.replace_one(filter, replacement).await?;
 
     if res.matched_count == 1 {
+      Ok(Some(game_id.to_string().into_boxed_str()))
+    } else {
+      Ok(None)
+    }
+  }
+
+  pub async fn delete(game_id: &ObjectId, game_data_source: DataSource) -> Result<Option<Box<str>>, Error> {
+    let client = game_data_source.get_new_db_client().await?;
+    let db = client.database(game_data_source.database_identifier);
+    let collection: Collection<Game> = db.collection(game_data_source.collection_identifier);
+    let filter = doc! { "_id": game_id };
+    let res = collection.delete_one(filter).await?;
+
+    if res.deleted_count == 1 {
       Ok(Some(game_id.to_string().into_boxed_str()))
     } else {
       Ok(None)

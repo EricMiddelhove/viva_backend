@@ -2,7 +2,7 @@ mod mongo_database_connector;
 mod api;
 mod data_source;
 
-use actix_web::{get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web::dev::ResourcePath;
 use actix_web::http::header::{HeaderValue};
 use actix_web::middleware::Logger;
@@ -92,16 +92,10 @@ async fn create_pending_user(path: web::Path<String>, req: HttpRequest) -> impl 
   let dealer_id = req.headers().get("X-User-Id");
   let dealer_pw = req.headers().get("X-Dealer-Pw");
 
-  let is_authorized = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
-  let is_authorized = match is_authorized {
-    Ok(b) => b,
-    Err(res) => {
-      return res;
-    }
-  };
-
-  if !is_authorized {
-    return HttpResponse::Unauthorized().finish();
+  let auth = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  match auth {
+    Ok(_) => {}
+    Err(err) => { return err }
   }
 
   let client = GAMEDAYS.get_new_db_client().await;
@@ -249,16 +243,13 @@ async fn create_game(body: web::Json<data_source::Game>, req: HttpRequest) -> im
   let dealer_pw = req.headers().get("X-Dealer-Pw");
 
   let is_authorized = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
-  let is_authorized = match is_authorized {
-    Ok(b) => b,
+  match is_authorized {
+    Ok(_) => {}
     Err(res) => {
       return res;
     }
   };
 
-  if !is_authorized {
-    return HttpResponse::Unauthorized().finish();
-  }
 
   let res = Game::new(body.join_fee as u32, body.name.clone(), body.description.clone(), body.icon_id.clone(), GAMES).await;
 
@@ -419,30 +410,6 @@ async fn join_game(path: web::Path<(String, String)>, req: HttpRequest) -> impl 
   }
 }
 
-#[get("/user/{id}")]
-async fn get_user(path: web::Path<String>) -> impl Responder {
-  let id = path.into_inner();
-
-  match id.as_str() {
-    "player" => {
-      get_user_by_role(data_source::Roles::Player).await
-    }
-    "dealer" => {
-      get_user_by_role(data_source::Roles::Dealer).await
-    }
-    id => {
-      match ObjectId::parse_str(id) {
-        Ok(id) => {
-          get_user_by_id(id).await
-        }
-        Err(e) => {
-          HttpResponse::NotFound().body(e.to_string())
-        }
-      }
-    }
-  }
-}
-
 #[patch("/game/{game_id}")]
 async fn patch_game(path: web::Path<String>, body: web::Json<data_source::Game>, req: HttpRequest) -> impl Responder {
   let dealer_id = req.headers().get("X-User-Id");
@@ -469,12 +436,66 @@ async fn patch_game(path: web::Path<String>, body: web::Json<data_source::Game>,
 
   let body = body.into_inner();
 
-  let res = Game::patch_game(&_id, GAMES, body).await;
+  let res = Game::patch(&_id, GAMES, body).await;
 
   match res {
     Ok(Some(_)) => { HttpResponse::Ok().body("success".to_string()) }
     Ok(None) => { HttpResponse::NotFound().body("Game not found") }
     Err(er) => { HttpResponse::InternalServerError().body(er.to_string()) }
+  }
+}
+
+#[delete("/game/{game_id}")]
+async fn delete_game(path: web::Path<String>, req: HttpRequest) -> impl Responder {
+  let dealer_id = req.headers().get("X-User-Id");
+  let dealer_pw = req.headers().get("X-Dealer-Pw");
+
+
+  let auth = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  match auth {
+    Ok(_) => {}
+    Err(r) => {
+      return r;
+    }
+  }
+
+  let id = ObjectId::parse_str(path.as_str());
+  let _id = match id {
+    Ok(id) => { id }
+    Err(e) => {
+      return HttpResponse::InternalServerError().body(e.to_string())
+    }
+  };
+
+  let res = Game::delete(&_id, GAMES).await;
+
+  match res {
+    Ok(_) => { HttpResponse::Ok().body("success".to_string()) }
+    Err(er) => { HttpResponse::InternalServerError().body(er.to_string()) }
+  }
+}
+
+#[get("/user/{id}")]
+async fn get_user(path: web::Path<String>) -> impl Responder {
+  let id = path.into_inner();
+
+  match id.as_str() {
+    "player" => {
+      get_user_by_role(data_source::Roles::Player).await
+    }
+    "dealer" => {
+      get_user_by_role(data_source::Roles::Dealer).await
+    }
+    id => {
+      match ObjectId::parse_str(id) {
+        Ok(id) => {
+          get_user_by_id(id).await
+        }
+        Err(e) => {
+          HttpResponse::NotFound().body(e.to_string())
+        }
+      }
+    }
   }
 }
 
@@ -623,14 +644,14 @@ async fn main() -> std::io::Result<()> {
       .service(login_dealer)
       .service(get_gameday)
       .service(patch_game)
+      .service(delete_game)
   })
     .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }
 
-
-async fn is_user_authenticated_dealer(dealer_id: Option<&HeaderValue>, dealer_pw: Option<&HeaderValue>) -> Result<bool, HttpResponse> {
+async fn is_user_authenticated_dealer(dealer_id: Option<&HeaderValue>, dealer_pw: Option<&HeaderValue>) -> Result<(), HttpResponse> {
   let dealer_id = match dealer_id {
     Some(id) => { id }
     None => {
@@ -687,5 +708,9 @@ async fn is_user_authenticated_dealer(dealer_id: Option<&HeaderValue>, dealer_pw
     }
   };
 
-  Ok(is_authorized)
+  if is_authorized {
+    return Ok(());
+  }
+
+  Err(HttpResponse::Unauthorized().body("User is not authorized"))
 }
