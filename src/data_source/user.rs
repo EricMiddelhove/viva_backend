@@ -116,6 +116,26 @@ impl User {
     }
   }
 
+  pub async fn set_credits(user_id: ObjectId, credits: i64, data: DataSource) -> Result<bool, Error> {
+    let client = data.get_new_db_client().await?;
+
+    let db = client.database(data.database_identifier);
+    let collection: Collection<User> = db.collection(&*data.collection_identifier.to_string());
+
+    let filter = doc! {
+      "_id": &user_id,
+    };
+    let modify = doc! { "$set": {"credits": credits }  };
+
+    let res = collection.update_one(filter, modify).await?;
+
+    match res.matched_count {
+      0 => Err(Error::from(ErrorKind::NotFound)),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+
   pub fn get_json_value(&self) -> serde_json::Value {
     match self {
       User::Player(u) => {

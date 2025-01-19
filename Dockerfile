@@ -1,14 +1,17 @@
-FROM rust:1.80-bookworm AS builder
+FROM rust:1.84-alpine3.21 AS builder
 
 WORKDIR /app
 COPY . .
 
+RUN apk add musl-dev
+
 RUN cargo clean
 RUN cargo install --path .
 
-FROM debian:bookworm-slim AS runner
 
-COPY --from=builder /usr/local/cargo/bin/viva_app /usr/local/bin/viva_app
+FROM alpine:3.21
+
+COPY --from=builder /usr/local/bin/viva_app /usr/local/bin/viva_app
 
 WORKDIR /home
 

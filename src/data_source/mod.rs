@@ -171,7 +171,6 @@ impl Into<Player> for DBUser {
 }
 
 #[derive(Deserialize, Serialize)]
-
 pub struct Game {
   pub(crate) name: String,
   pub(crate) icon_id: String,

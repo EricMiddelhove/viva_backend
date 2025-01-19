@@ -2,8 +2,9 @@ mod mongo_database_connector;
 mod api;
 mod data_source;
 
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web::dev::ResourcePath;
+use actix_web::http::header::{HeaderValue};
 use actix_web::middleware::Logger;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::rand_core::OsRng;
@@ -13,6 +14,7 @@ use mongodb::Collection;
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use rand::Rng;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::data_source::{DBUser, ACTIVE_USERS, GAMEDAYS, GAMES, PENDING_USERS};
 use data_source::gameday::Gameday;
@@ -86,7 +88,22 @@ async fn get_gameday() -> impl Responder {
 }
 
 #[get("/login_pin/{gameday_id}")]
-async fn create_pending_user(path: web::Path<String>) -> impl Responder {
+async fn create_pending_user(path: web::Path<String>, req: HttpRequest) -> impl Responder {
+  let dealer_id = req.headers().get("X-User-Id");
+  let dealer_pw = req.headers().get("X-Dealer-Pw");
+
+  let is_authorized = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  let is_authorized = match is_authorized {
+    Ok(b) => b,
+    Err(res) => {
+      return res;
+    }
+  };
+
+  if !is_authorized {
+    return HttpResponse::Unauthorized().finish();
+  }
+
   let client = GAMEDAYS.get_new_db_client().await;
 
   let client = match client {
@@ -227,7 +244,22 @@ async fn register_user(body: web::Json<data_source::RegisterUser>) -> impl Respo
 }
 
 #[post("/game")]
-async fn create_game(body: web::Json<data_source::Game>) -> impl Responder {
+async fn create_game(body: web::Json<data_source::Game>, req: HttpRequest) -> impl Responder {
+  let dealer_id = req.headers().get("X-User-Id");
+  let dealer_pw = req.headers().get("X-Dealer-Pw");
+
+  let is_authorized = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  let is_authorized = match is_authorized {
+    Ok(b) => b,
+    Err(res) => {
+      return res;
+    }
+  };
+
+  if !is_authorized {
+    return HttpResponse::Unauthorized().finish();
+  }
+
   let res = Game::new(body.join_fee as u32, body.name.clone(), body.description.clone(), body.icon_id.clone(), GAMES).await;
 
   match res {
@@ -235,7 +267,7 @@ async fn create_game(body: web::Json<data_source::Game>) -> impl Responder {
       let body = json!(
                 {
                     "_id": game._id.to_string(),
-                    "join_fee": game.initial_costs,
+                    "join_fee": game.join_fee,
                     "name": game.name,
                 }
             );
@@ -261,7 +293,7 @@ async fn get_all_games() -> impl Responder {
     json!(
         {
             "_id": g._id.to_string(),
-            "join_fee": g.initial_costs,
+            "join_fee": g.join_fee,
             "name": g.name,
             "icon_id": g.icon_id.to_string(),
             "description": g.description
@@ -392,11 +424,11 @@ async fn get_user(path: web::Path<String>) -> impl Responder {
   let id = path.into_inner();
 
   match id.as_str() {
-    "players" => {
-      get_user_by_role("players").await
+    "player" => {
+      get_user_by_role(data_source::Roles::Player).await
     }
-    "dealers" => {
-      get_user_by_role("dealers").await
+    "dealer" => {
+      get_user_by_role(data_source::Roles::Dealer).await
     }
     id => {
       match ObjectId::parse_str(id) {
@@ -411,13 +443,46 @@ async fn get_user(path: web::Path<String>) -> impl Responder {
   }
 }
 
-async fn get_user_by_role(role: &str) -> HttpResponse {
-  let role = match role {
-    "players" => { data_source::Roles::Player }
-    "dealers" => { data_source::Roles::Dealer }
-    _ => { return HttpResponse::BadRequest().body("Invalid Role") }
+#[patch("/game/{game_id}")]
+async fn patch_game(path: web::Path<String>, body: web::Json<data_source::Game>, req: HttpRequest) -> impl Responder {
+  let dealer_id = req.headers().get("X-User-Id");
+  let dealer_pw = req.headers().get("X-Dealer-Pw");
+
+
+  let auth = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  match auth {
+    Ok(_) => {}
+    Err(r) => {
+      return r;
+    }
+  }
+
+  let path = path.into_inner();
+  let id = ObjectId::parse_str(path.as_str());
+
+  let _id = match id {
+    Ok(id) => { id }
+    Err(e) => {
+      return HttpResponse::InternalServerError().body(e.to_string())
+    }
   };
 
+  let body = body.into_inner();
+
+  let res = Game::patch_game(&_id, GAMES, body).await;
+
+  match res {
+    Ok(Some(_)) => { HttpResponse::Ok().body("success".to_string()) }
+    Ok(None) => { HttpResponse::NotFound().body("Game not found") }
+    Err(er) => { HttpResponse::InternalServerError().body(er.to_string()) }
+  }
+}
+
+#[derive(Deserialize)]
+struct CreditPatchBody {
+  credits: i64,
+}
+async fn get_user_by_role(role: data_source::Roles) -> HttpResponse {
   let users = User::get_by_role(role, ACTIVE_USERS).await;
 
   let users = match users {
@@ -557,8 +622,70 @@ async fn main() -> std::io::Result<()> {
       .service(register_dealer)
       .service(login_dealer)
       .service(get_gameday)
+      .service(patch_game)
   })
     .bind(("0.0.0.0", 8080))?
     .run()
     .await
+}
+
+
+async fn is_user_authenticated_dealer(dealer_id: Option<&HeaderValue>, dealer_pw: Option<&HeaderValue>) -> Result<bool, HttpResponse> {
+  let dealer_id = match dealer_id {
+    Some(id) => { id }
+    None => {
+      return Err(HttpResponse::Unauthorized().body("Dealer ID not provided in X-User-Id Header"));
+    }
+  };
+  let dealer_id = match dealer_id.to_str() {
+    Ok(d) => d,
+    Err(x) => {
+      return Err(HttpResponse::BadRequest().body(x.to_string()));
+    }
+  };
+
+  let dealer_pw = match dealer_pw {
+    None => { return Err(HttpResponse::Unauthorized().body("Dealer password not provided in X-Dealer-Pw Header")); }
+    Some(x) => { x }
+  };
+  let dealer_pw = match dealer_pw.to_str() {
+    Ok(d) => d,
+    Err(x) => {
+      return Err(HttpResponse::BadRequest().body(x.to_string()));
+    }
+  };
+
+  let _id_dealer = ObjectId::parse_str(dealer_id);
+  let _id_dealer = match _id_dealer {
+    Ok(id) => { id }
+    Err(_) => {
+      return Err(HttpResponse::BadRequest().body("Dealer ID is not valid utf-8"));
+    }
+  };
+
+  let user = User::get(_id_dealer, ACTIVE_USERS).await;
+  let user = match user {
+    Ok(Some(d)) => d,
+    Err(e) => {
+      return Err(HttpResponse::InternalServerError().body(e.to_string()));
+    }
+    _ => { return Err(HttpResponse::NotFound().body("Dealer id not found")) }
+  };
+
+  let dealer = match user {
+    User::Player(_) => {
+      return Err(HttpResponse::Unauthorized().body("User Id does not refer to a dealer"));
+    }
+    User::Dealer(d) => d
+  };
+
+  let is_authorized = dealer.is_authenticated(dealer_pw).await;
+  let is_authorized = match is_authorized {
+    Ok(t) => { t }
+    Err(_) => {
+      return Err(HttpResponse::BadRequest().body("Password could not be authenticated"));
+    }
+  };
+
+  Ok(is_authorized)
 }
