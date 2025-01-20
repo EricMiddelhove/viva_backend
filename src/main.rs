@@ -2,6 +2,7 @@ mod mongo_database_connector;
 mod api;
 mod data_source;
 
+use std::env;
 use actix_web::{delete, get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web::dev::ResourcePath;
 use actix_web::http::header::{HeaderValue};
@@ -10,7 +11,7 @@ use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use futures::FutureExt;
-use mongodb::Collection;
+use mongodb::{Collection, IndexModel};
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use rand::Rng;
@@ -20,6 +21,7 @@ use crate::data_source::{DBUser, ACTIVE_USERS, GAMEDAYS, GAMES, PENDING_USERS};
 use data_source::gameday::Gameday;
 use data_source::user::{Player, User};
 use data_source::game::Game;
+use log::info;
 use crate::data_source::user::Dealer;
 
 const DATABASE_IDENT: &str = "viva_las_vegas";
@@ -322,7 +324,8 @@ async fn get_game(path: web::Path<String>) -> impl Responder {
       let body = json!(
                 {
                     "_id": game._id.to_string(),
-                    "initial_cost": 0,
+                    "join_fee": game.join_fee,
+                    "icon_id": game.icon_id.to_string(),
                     "name": game.name,
                     "description": game.description,
                     "players": users.iter().map(|v| json!({
@@ -475,6 +478,39 @@ async fn delete_game(path: web::Path<String>, req: HttpRequest) -> impl Responde
   }
 }
 
+#[derive(Deserialize)]
+struct CreditPatchBody {
+  credits: i64,
+}
+#[post("user/{user_id}/credits")]
+pub async fn set_credits(path: web::Path<String>, body: web::Json<CreditPatchBody>, req: HttpRequest) -> impl Responder {
+  let dealer_id = req.headers().get("X-User-Id");
+  let dealer_pw = req.headers().get("X-Dealer-Pw");
+
+  let auth = is_user_authenticated_dealer(dealer_id, dealer_pw).await;
+  match auth {
+    Ok(_) => {}
+    Err(e) => { return e; }
+  }
+
+
+  let id = ObjectId::parse_str(path.as_str());
+  let _id = match id {
+    Ok(id) => { id }
+    Err(e) => {
+      return HttpResponse::InternalServerError().body(e.to_string());
+    }
+  };
+
+  let res = User::set_credits(_id, body.credits, ACTIVE_USERS).await;
+
+  match res {
+    Ok(_) => { HttpResponse::Ok().body("success".to_string()) }
+    Err(er) => { HttpResponse::InternalServerError().body(er.to_string()) }
+  }
+}
+
+
 #[get("/user/{id}")]
 async fn get_user(path: web::Path<String>) -> impl Responder {
   let id = path.into_inner();
@@ -499,10 +535,7 @@ async fn get_user(path: web::Path<String>) -> impl Responder {
   }
 }
 
-#[derive(Deserialize)]
-struct CreditPatchBody {
-  credits: i64,
-}
+
 async fn get_user_by_role(role: data_source::Roles) -> HttpResponse {
   let users = User::get_by_role(role, ACTIVE_USERS).await;
 
@@ -626,7 +659,49 @@ async fn index() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+  let args: Vec<String> = env::args().collect();
+  dbg!(args);
+
+
   env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+
+  let client = ACTIVE_USERS.get_new_db_client().await?;
+  let db = client.database(ACTIVE_USERS.database_identifier);
+
+  let coll: Collection<User> = db.collection(ACTIVE_USERS.collection_identifier);
+  let usr_indices = IndexModel::builder().keys(doc! { "name": 1}).build();
+  let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
+  info!("Created index: {:?}", res);
+
+  let usr_indices = IndexModel::builder().keys(doc! {"pin": 1}).build();
+  let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
+  info!("Created index: {:?}", res);
+
+  let usr_indices = IndexModel::builder().keys(doc! {"role": 1}).build();
+  let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
+  info!("Created index: {:?}", res);
+
+  let usr_indices = IndexModel::builder().keys(doc! {"active_game": 1}).build();
+  let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
+  info!("Created index: {:?}", res);
+
+  let coll: Collection<User> = db.collection(PENDING_USERS.collection_identifier);
+  let pen_usr_indices = IndexModel::builder().keys(doc! { "name": 1}).build();
+  let res = coll.create_index(pen_usr_indices).await.expect("Cannot create index PENDING_USERS");
+  info!("Created index: {:?}", res);
+
+  let pen_usr_indices = IndexModel::builder().keys(doc! {"pin": 1}).build();
+  let res = coll.create_index(pen_usr_indices).await.expect("Cannot create index PENDING_USERS");
+  info!("Created index: {:?}", res);
+
+  let pen_usr_indices = IndexModel::builder().keys(doc! { "name": 1, "pin": 1}).build();
+  let res = coll.create_index(pen_usr_indices).await.expect("Cannot create index PENDING_USERS");
+  info!("Created index: {:?}", res);
+
+  let coll: Collection<Game> = db.collection(GAMES.collection_identifier);
+  let game_inidces = IndexModel::builder().keys(doc! {"active_game": 1 }).build();
+  let res = coll.create_index(game_inidces).await.expect("Cannot create index GAMES");
+  info!("Created index: {:?}", res);
 
   HttpServer::new(|| {
     App::new()

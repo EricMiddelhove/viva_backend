@@ -77,6 +77,22 @@ impl User {
     Ok(res)
   }
 
+  pub async fn patch(_id: ObjectId, data: DBUser, data_source: DataSource) -> Result<Option<Box<str>>, Error> {
+    let client = data_source.get_new_db_client().await?;
+    let db = client.database(data_source.database_identifier);
+    let coll: Collection<DBUser> = db.collection(data_source.collection_identifier);
+
+
+    let filter = doc! { "_id": _id };
+    let res = coll.replace_one(filter, &data).await?;
+
+    if res.matched_count == 1 {
+      Ok(Some(_id.to_string().into_boxed_str()))
+    } else {
+      Ok(None)
+    }
+  }
+
   pub async fn get_by_name(name: &str, data_source: DataSource) -> Result<Option<User>, Error> {
     let client = data_source.get_new_db_client().await?;
 
@@ -153,7 +169,7 @@ impl User {
     match res.matched_count {
       0 => Err(Error::from(ErrorKind::NotFound)),
       1 => Ok(true),
-      _ => Ok(false),
+      _ => Err(Error::from(ErrorKind::Other)),
     }
   }
 

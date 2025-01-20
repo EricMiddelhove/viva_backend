@@ -2257,6 +2257,7 @@ dependencies = [
  "async-trait",
  "env_logger",
  "futures",
+ "log",
  "mongodb",
  "rand",
  "serde",

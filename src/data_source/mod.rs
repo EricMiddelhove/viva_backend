@@ -163,12 +163,13 @@ impl Into<Player> for DBUser {
       name: self.name,
       nickname: self.nickname,
       _id: self._id,
-      credits: self.credits.expect("Players credits are none"),
+      credits: self.credits.unwrap_or(0),
       pin: self.pin,
       active_game: self.active_game,
     }
   }
 }
+
 
 #[derive(Deserialize, Serialize)]
 pub struct Game {
