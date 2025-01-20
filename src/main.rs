@@ -3,6 +3,8 @@ mod api;
 mod data_source;
 
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use actix_web::{delete, get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web::dev::ResourcePath;
 use actix_web::http::header::{HeaderValue};
@@ -16,12 +18,12 @@ use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use rand::Rng;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, to_string, Value};
 use crate::data_source::{DBUser, ACTIVE_USERS, GAMEDAYS, GAMES, PENDING_USERS};
 use data_source::gameday::Gameday;
 use data_source::user::{Player, User};
 use data_source::game::Game;
-use log::info;
+use log::{error, info};
 use crate::data_source::user::Dealer;
 
 const DATABASE_IDENT: &str = "viva_las_vegas";
@@ -660,7 +662,49 @@ async fn index() -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
   let args: Vec<String> = env::args().collect();
-  dbg!(args);
+
+
+  if args.contains(&"-p".to_string()) {
+    let location = args.iter().position(|x| x == "-p").unwrap();
+    let amount: u64 = args.get(location + 1).unwrap().parse().unwrap();
+
+    let credits: u64 = args.get(location + 2).unwrap().parse().unwrap();
+
+
+    let mut file = File::create("pins.txt")?;
+
+
+    for _ in 0..amount {
+      let pin: u32 = rand::thread_rng().gen_range(100_000..999_999);
+
+      let data = User::Player(Player {
+        name: None,
+        nickname: None,
+        _id: ObjectId::new(),
+        credits: credits,
+        pin,
+        active_game: None,
+      });
+
+
+      let u = User::new(data, PENDING_USERS).await;
+
+      match u {
+        Ok(_) => {}
+        Err(e) => {
+          println!("{:?}", e);
+          break;
+        }
+      }
+
+      println!("{}", pin);
+
+      let mut p = pin.to_string();
+      p.push('\n');
+
+      file.write_all(p.to_string().as_bytes())?;
+    }
+  }
 
 
   env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
