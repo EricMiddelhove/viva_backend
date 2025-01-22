@@ -2,7 +2,7 @@ mod mongo_database_connector;
 mod api;
 mod data_source;
 
-use std::env;
+use std::{env, io};
 use std::fs::File;
 use std::io::Write;
 use actix_web::{delete, get, patch, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
@@ -12,18 +12,19 @@ use actix_web::middleware::Logger;
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use mongodb::{Collection, IndexModel};
 use mongodb::bson::doc;
 use mongodb::bson::oid::ObjectId;
 use rand::Rng;
 use serde::Deserialize;
-use serde_json::{json, to_string, Value};
+use serde_json::{json, to_string, Error, Value};
 use crate::data_source::{DBUser, ACTIVE_USERS, GAMEDAYS, GAMES, PENDING_USERS};
 use data_source::gameday::Gameday;
 use data_source::user::{Player, User};
 use data_source::game::Game;
 use log::{error, info};
+use mongodb::error::ErrorKind;
 use crate::data_source::user::Dealer;
 
 const DATABASE_IDENT: &str = "viva_las_vegas";
@@ -179,10 +180,10 @@ async fn register_user(body: web::Json<data_source::RegisterUser>) -> impl Respo
     Err(e) => {
       return HttpResponse::InternalServerError().body(e.to_string());
     }
-    _ => {
+    Ok(None) => {
       let coll: Collection<data_source::DBUser> = client.database(DATABASE_IDENT).collection(ACTIVE_USERS.collection_identifier);
 
-      let res = coll.find_one(doc! {"pin": body.pin, "name": body.name.as_str()}).await;
+      let res = coll.find_one(doc! {"pin": body.pin, "name": body.name.as_str(), "nickname": body.nickname.as_str()}).await;
 
       match res {
         Ok(Some(u)) => {
@@ -484,7 +485,7 @@ async fn delete_game(path: web::Path<String>, req: HttpRequest) -> impl Responde
 struct CreditPatchBody {
   credits: i64,
 }
-#[post("user/{user_id}/credits")]
+#[patch("user/{user_id}/credits")]
 pub async fn set_credits(path: web::Path<String>, body: web::Json<CreditPatchBody>, req: HttpRequest) -> impl Responder {
   let dealer_id = req.headers().get("X-User-Id");
   let dealer_pw = req.headers().get("X-Dealer-Pw");
@@ -511,7 +512,6 @@ pub async fn set_credits(path: web::Path<String>, body: web::Json<CreditPatchBod
     Err(er) => { HttpResponse::InternalServerError().body(er.to_string()) }
   }
 }
-
 
 #[get("/user/{id}")]
 async fn get_user(path: web::Path<String>) -> impl Responder {
@@ -561,7 +561,6 @@ async fn get_user_by_role(role: data_source::Roles) -> HttpResponse {
 async fn get_user_by_id(_id: ObjectId) -> HttpResponse {
   let user = User::get(_id, ACTIVE_USERS).await;
 
-  println!("{:?}", user);
   match user {
     Ok(Some(user)) => {
       let usr = user.get_json_value();
@@ -641,7 +640,9 @@ async fn login_dealer(body: web::Json<data_source::LoginDealer>) -> impl Respond
       match is_aut {
         Ok(o) => {
           if o {
-            return HttpResponse::Ok().finish();
+            return HttpResponse::Ok().json(json!({
+              "_id": u._id.to_string(),
+            }));
           }
 
           HttpResponse::Unauthorized().body("Wrong Password".to_string())
@@ -659,51 +660,96 @@ async fn index() -> impl Responder {
   HttpResponse::PermanentRedirect().insert_header(("Location", "https://www.youtube.com/watch?v=R_ijlnDtKa4")).finish()
 }
 
+async fn generate_pins(args: Vec<String>) -> io::Result<()> {
+  let location = args.iter().position(|x| x == "-p").unwrap();
+  let amount: u64 = args.get(location + 1).unwrap().parse().unwrap();
+
+  let credits: u64 = args.get(location + 2).unwrap().parse().unwrap();
+
+  let mut file = File::create("pins.txt")?;
+
+  for _ in 0..amount {
+    let pin: u32 = rand::thread_rng().gen_range(100_000..999_999);
+
+    let data = User::Player(Player {
+      name: None,
+      nickname: None,
+      _id: ObjectId::new(),
+      credits: credits,
+      pin,
+      active_game: None,
+    });
+
+
+    let u = User::new(data, PENDING_USERS).await;
+
+    match u {
+      Ok(_) => {}
+      Err(e) => {
+        println!("{:?}", e);
+        break;
+      }
+    }
+
+    println!("{}", pin);
+
+    let mut p = pin.to_string();
+    p.push('\n');
+
+    file.write_all(p.to_string().as_bytes())?;
+  }
+
+  Ok(())
+}
+
+
+async fn create_default_dealer() -> io::Result<()> {
+  let password: u64 = OsRng::default().gen();
+  let name: u64 = OsRng::default().gen();;
+
+  let password = password.to_string();
+  let name = name.to_string();
+
+  let salt: SaltString = SaltString::generate(&mut OsRng);
+  let argon2: Argon2 = Argon2::default();
+
+  let password_hash = argon2
+    .hash_password(password.as_bytes(), &salt);
+
+  let pw = match password_hash {
+    Ok(pass) => pass,
+    Err(e) => {
+      return Err(io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()));
+    }
+  };
+
+  println!("Default dealer created with name: {}", &name);
+  println!("Default dealer created with password: {}", &password);
+
+  let d = User::Dealer(Dealer {
+    name: name.to_string(),
+    _id: ObjectId::new(),
+    password: pw.to_string(),
+  });
+
+  let r = User::new(d, ACTIVE_USERS).await;
+
+
+  match r {
+    Ok(_) => { Ok(()) }
+    Err(_) => {
+      return Err(io::Error::new(std::io::ErrorKind::NotFound, "Dealer creation failed"));
+    }
+  }
+}
+
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
   let args: Vec<String> = env::args().collect();
 
 
   if args.contains(&"-p".to_string()) {
-    let location = args.iter().position(|x| x == "-p").unwrap();
-    let amount: u64 = args.get(location + 1).unwrap().parse().unwrap();
-
-    let credits: u64 = args.get(location + 2).unwrap().parse().unwrap();
-
-
-    let mut file = File::create("pins.txt")?;
-
-
-    for _ in 0..amount {
-      let pin: u32 = rand::thread_rng().gen_range(100_000..999_999);
-
-      let data = User::Player(Player {
-        name: None,
-        nickname: None,
-        _id: ObjectId::new(),
-        credits: credits,
-        pin,
-        active_game: None,
-      });
-
-
-      let u = User::new(data, PENDING_USERS).await;
-
-      match u {
-        Ok(_) => {}
-        Err(e) => {
-          println!("{:?}", e);
-          break;
-        }
-      }
-
-      println!("{}", pin);
-
-      let mut p = pin.to_string();
-      p.push('\n');
-
-      file.write_all(p.to_string().as_bytes())?;
-    }
+    generate_pins(args).await?;
   }
 
 
@@ -714,6 +760,10 @@ async fn main() -> std::io::Result<()> {
 
   let coll: Collection<User> = db.collection(ACTIVE_USERS.collection_identifier);
   let usr_indices = IndexModel::builder().keys(doc! { "name": 1}).build();
+  let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
+  info!("Created index: {:?}", res);
+
+  let usr_indices = IndexModel::builder().keys(doc! { "name": 1, "pin": 1, "nickname": 1}).build();
   let res = coll.create_index(usr_indices).await.expect("Cannot create index ACTIVE_USERS");
   info!("Created index: {:?}", res);
 
@@ -747,6 +797,24 @@ async fn main() -> std::io::Result<()> {
   let res = coll.create_index(game_inidces).await.expect("Cannot create index GAMES");
   info!("Created index: {:?}", res);
 
+
+  let coll: Collection<DBUser> = db.collection(ACTIVE_USERS.collection_identifier);
+  let res = coll.find_one(doc! {"role": "Dealer"}).await.expect("Cannot find dealer ACTIVE_USERS");
+
+  if res.is_none() {
+    let res = create_default_dealer().await;
+
+    match res {
+      Ok(_) => {}
+      Err(_) => {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Dealer creation failed"));
+      }
+    }
+  } else {
+    println!("Dealer User exist - creating default dealer skipped");
+  }
+
+
   HttpServer::new(|| {
     App::new()
       .wrap(Logger::default())
@@ -764,11 +832,13 @@ async fn main() -> std::io::Result<()> {
       .service(get_gameday)
       .service(patch_game)
       .service(delete_game)
+      .service(set_credits)
   })
     .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }
+
 
 async fn is_user_authenticated_dealer(dealer_id: Option<&HeaderValue>, dealer_pw: Option<&HeaderValue>) -> Result<(), HttpResponse> {
   let dealer_id = match dealer_id {
