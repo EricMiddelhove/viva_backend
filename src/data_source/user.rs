@@ -11,6 +11,8 @@ use crate::{data_source};
 use crate::data_source::{DBUser, DataSource, GAMES};
 use crate::data_source::game::Game;
 
+extern crate api_tools;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Player {
   pub(crate) name: Option<String>,
@@ -32,6 +34,7 @@ pub enum User {
   Player(Player),
   Dealer(Dealer),
 }
+
 
 impl User {
   pub async fn new(data: User, data_source: DataSource) -> Result<ObjectId, Error> {
