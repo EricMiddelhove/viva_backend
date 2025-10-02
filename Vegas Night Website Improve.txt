@@ -2,7 +2,7 @@ Check for empty whitespaces in login
 
 Lenovo Tablet Browser Chrome - Übertriebene Häufig neu laden
 
-User not found reports 500
+User not found reports 500 - DONE
 
 How any players are in each game?
 
