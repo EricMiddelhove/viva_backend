@@ -11,8 +11,6 @@ use crate::{data_source};
 use crate::data_source::{DBUser, DataSource, GAMES};
 use crate::data_source::game::Game;
 
-extern crate api_tools;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Player {
   pub(crate) name: Option<String>,
@@ -22,6 +20,7 @@ pub struct Player {
   pub(crate) pin: u32,
   pub(crate) active_game: Option<ObjectId>,
 }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Dealer {
   pub(crate) name: String,
