@@ -198,10 +198,10 @@ async fn register_user(body: web::Json<data_source::RegisterUser>) -> impl Respo
           return HttpResponse::Ok().json(json);
         }
         Err(_) => {
-          return HttpResponse::InternalServerError().body("user not found")
+          return HttpResponse::BadRequest().body("user not found")
         }
         _ => {
-          return HttpResponse::InternalServerError().body("user not found")
+          return HttpResponse::BadRequest().body("user not found")
         }
       }
     }
@@ -928,4 +928,3 @@ async fn is_user_authenticated_dealer(
 
     Err(HttpResponse::Unauthorized().body("User is not authorized"))
 }
-
