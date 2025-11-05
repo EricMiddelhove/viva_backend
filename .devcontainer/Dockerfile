@@ -1,4 +1,4 @@
-FROM rust:1.80-bookworm
+FROM rust:1.91-bookworm
 
 RUN rustup component add rustfmt
 

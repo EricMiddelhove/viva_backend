@@ -6,10 +6,10 @@ use std::io::{Error, ErrorKind};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Gameday {
-    pub(crate) initial_player_credits: u64,
-    pub(crate) name: String,
-    pub(crate) games: Vec<Game>,
-    pub(crate) _id: ObjectId,
+    pub initial_player_credits: u64,
+    pub name: String,
+    pub games: Vec<Game>,
+    pub _id: ObjectId,
 }
 
 impl Gameday {
@@ -35,4 +35,3 @@ impl Gameday {
         }
     }
 }
-

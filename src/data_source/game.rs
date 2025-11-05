@@ -9,12 +9,19 @@ use mongodb::Collection;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct GamePlayerInfo {
+    pub player_id: ObjectId,
+    pub player_credit_delta: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Game {
     pub(crate) _id: ObjectId,
     pub(crate) description: String,
     pub(crate) join_fee: u32,
     pub(crate) name: String,
     pub(crate) icon_id: String,
+    pub(crate) player_information: Option<Vec<GamePlayerInfo>>,
 }
 
 impl Game {
@@ -35,6 +42,7 @@ impl Game {
             join_fee: initial_costs,
             name,
             icon_id,
+            player_information: Some(vec![]),
         };
 
         let res = collection.insert_one(&insert_doc).await;
@@ -56,7 +64,7 @@ impl Game {
         Ok(res)
     }
 
-    pub async fn get_players(
+    pub async fn get_active_players(
         game_id: &ObjectId,
         player_data_source: DataSource,
     ) -> Result<Vec<Player>, Error> {

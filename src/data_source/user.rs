@@ -249,3 +249,14 @@ impl Dealer {
         Ok(is_valid)
     }
 }
+
+impl TryFrom<User> for Player {
+    type Error = Error;
+
+    fn try_from(user: User) -> Result<Player, Error> {
+        match user {
+            User::Player(p) => Ok(p),
+            User::Dealer(_) => Err(Error::from(ErrorKind::InvalidData)),
+        }
+    }
+}
